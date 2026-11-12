@@ -3,6 +3,7 @@ package com.aire.launcher;
 import android.app.WallpaperColors;
 import android.app.WallpaperManager;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.os.Build;
@@ -14,6 +15,7 @@ final class Palette {
     boolean light;
 
     static Palette from(Context c) {
+        SharedPreferences sp = Cfg.sp(c);
         Palette p = new Palette();
         int primary = 0xFF20242B;
         int secondary = 0xFF8FA3B8;
@@ -33,17 +35,29 @@ final class Palette {
         }
         boolean night = (c.getResources().getConfiguration().uiMode
                 & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
-        p.light = have ? lum(primary) > 0.35 : !night;
+        boolean autoLight = have ? lum(primary) > 0.35 : !night;
+        int theme = sp.getInt(Cfg.THEME, 0);
+        p.light = theme == 1 ? true : theme == 2 ? false : autoLight;
+        boolean mismatch = p.light != autoLight;
 
         int textC = p.light ? 0xFF111317 : 0xFFF4F5F7;
         int base = p.light ? mix(0xFFFFFFFF, primary, 0.12f) : mix(0xFF000000, primary, 0.15f);
 
-        // Oscurecimiento del inicio: lo mínimo necesario (máx. 36 %). El halo del texto completa el contraste.
+        // Oscurecimiento del inicio: el mínimo necesario (o el que elijas)
+        float cap = mismatch ? 0.85f : 0.36f;
         float a = 0.08f;
-        while (a < 0.36f && contrast(textC, mix(primary, base, a)) < 3.0) a += 0.04f;
+        int hd = sp.getInt(Cfg.HOMEDIM, -1);
+        if (hd >= 0) {
+            a = hd / 100f;
+        } else {
+            while (a < cap && contrast(textC, mix(primary, base, a)) < 3.0) a += 0.04f;
+        }
         p.homeDim = a;
-        p.drawerDim = Math.min(0.90f, Math.max(0.78f, a + 0.45f));
+        int dd = sp.getInt(Cfg.DRAWERDIM, -1);
+        p.drawerDim = dd >= 0 ? dd / 100f : Math.min(0.90f, Math.max(0.78f, a + 0.45f));
 
+        int ai = sp.getInt(Cfg.ACCENT, 0);
+        if (ai > 0 && ai < Cfg.ACCENTS.length) secondary = Cfg.ACCENTS[ai];
         int bgHome = mix(primary, base, a);
         int acc = secondary;
         for (int i = 1; i <= 10 && contrast(acc, bgHome) < 3.0; i++) {
@@ -83,4 +97,4 @@ final class Palette {
         double x = lum(a), y = lum(b);
         return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
     }
-    }
+}
