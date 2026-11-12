@@ -63,9 +63,11 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -73,7 +75,6 @@ public class MainActivity extends Activity {
 
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
     private static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
-    private static final int DOCK_MAX = 6;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -81,6 +82,15 @@ public class MainActivity extends Activity {
     private Palette pal;
     private float density = 1f;
     private int W, H, insetTop, insetBottom;
+
+    // ajustes (se leen en loadSettings)
+    private int cols = 4, dockMax = 6, cstyle, csize = 1, calign, swipe, shape, appliedRev;
+    private float isc = 1f;
+    private boolean themed = true, labels = true, group = true, freq = true, kbd, showDate = true,
+            dockPill, dockShow = true;
+    private final Set<String> hiddenIds = new HashSet<>();
+    private final Map<String, Integer> usage = new HashMap<>();
+    private boolean usageDirty;
 
     private Root root;
     private View scrim;
@@ -143,7 +153,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        prefs = getSharedPreferences("aire", MODE_PRIVATE);
+        prefs = Cfg.sp(this);
         setupWindow();
         pal = Palette.from(this);
         buildUi();
@@ -184,6 +194,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (prefs.getInt(Cfg.REV, 0) != appliedRev) {
+            pal = Palette.from(this);
+            rebuildUi();
+        }
         applyBars();
         updateClock();
     }
@@ -200,6 +214,10 @@ public class MainActivity extends Activity {
         }
         dismissMenu();
         if (progress > 0f) closeInstant();
+        if (usageDirty) {
+            usageDirty = false;
+            buildPages();
+        }
     }
 
     @Override
@@ -250,6 +268,81 @@ public class MainActivity extends Activity {
     private void reg(BroadcastReceiver r, IntentFilter f) {
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(r, f, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(r, f);
+    }
+
+    // ------------------------------------------------------------ ajustes
+
+    private void loadSettings() {
+        SharedPreferences sp = prefs;
+        cols = sp.getInt(Cfg.COLS, 4) == 5 ? 5 : 4;
+        int is = sp.getInt(Cfg.ISIZE, 1);
+        isc = is == 0 ? 0.86f : is == 2 ? 1.14f : 1f;
+        shape = sp.getInt(Cfg.SHAPE, 0);
+        themed = sp.getBoolean(Cfg.THEMED, true);
+        labels = sp.getBoolean(Cfg.LABELS, true);
+        cstyle = sp.getInt(Cfg.CSTYLE, 0);
+        csize = sp.getInt(Cfg.CSIZE, 1);
+        calign = sp.getInt(Cfg.CALIGN, 0);
+        showDate = sp.getBoolean(Cfg.DATE, true);
+        dockMax = Math.max(4, Math.min(6, sp.getInt(Cfg.DOCKMAX, 6)));
+        dockPill = sp.getBoolean(Cfg.DOCKPILL, false);
+        dockShow = sp.getBoolean(Cfg.DOCKSHOW, true);
+        group = sp.getBoolean(Cfg.GROUP, true);
+        freq = sp.getBoolean(Cfg.FREQ, true);
+        kbd = sp.getBoolean(Cfg.KBD, false);
+        swipe = sp.getInt(Cfg.SWIPE, 0);
+        hiddenIds.clear();
+        String h = sp.getString(Cfg.HIDDEN, "");
+        if (h != null) for (String k : h.split("\n")) if (!k.isEmpty()) hiddenIds.add(k);
+        usage.clear();
+        String u = sp.getString(Cfg.USAGE, "");
+        if (u != null) {
+            for (String line : u.split("\n")) {
+                int i = line.lastIndexOf('=');
+                if (i > 0) {
+                    try {
+                        usage.put(line.substring(0, i), Integer.parseInt(line.substring(i + 1)));
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+            }
+        }
+        appliedRev = sp.getInt(Cfg.REV, 0);
+    }
+
+    private void saveHidden() {
+        StringBuilder sb = new StringBuilder();
+        for (String k : hiddenIds) {
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(k);
+        }
+        prefs.edit().putString(Cfg.HIDDEN, sb.toString()).apply();
+    }
+
+    private void bumpUsage(String id) {
+        Integer c = usage.get(id);
+        usage.put(id, c == null ? 1 : c + 1);
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, Integer> e : usage.entrySet()) {
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(e.getKey()).append('=').append(e.getValue());
+        }
+        prefs.edit().putString(Cfg.USAGE, sb.toString()).apply();
+        usageDirty = true;
+    }
+
+    private List<AppInfo> frequent() {
+        List<AppInfo> r = new ArrayList<>();
+        for (AppInfo a : apps) {
+            Integer c = usage.get(a.id);
+            if (c != null && c > 0 && !hiddenIds.contains(a.id)) r.add(a);
+        }
+        Collections.sort(r, (x, y) -> usage.get(y.id) - usage.get(x.id));
+        return r.size() > 8 ? new ArrayList<>(r.subList(0, 8)) : r;
+    }
+
+    private int cellH() {
+        return Math.round(dp(labels ? 92 : 80) * isc);
     }
 
     // ------------------------------------------------------------ ventana y barras
@@ -307,7 +400,8 @@ public class MainActivity extends Activity {
         W = dm.widthPixels;
         H = dm.heightPixels;
         density = dm.density;
-        dockSlot = W / 8; // 1 hueco de margen + 6 apps + 1 hueco de margen
+        loadSettings();
+        dockSlot = W / (dockMax + 2); // 1 hueco de margen + apps + 1 hueco de margen
         menuLayer = null;
         dDragging = false;
 
@@ -396,43 +490,63 @@ public class MainActivity extends Activity {
 
     private void buildHome() {
         Typeface light = Typeface.create("sans-serif-light", Typeface.NORMAL);
-        hourTv = text(112, pal.text, light);
-        minTv = text(112, pal.accent, light);
+        boolean line = cstyle == 1;
+        boolean left = calign == 1;
+        float[] sizes = line ? new float[]{56, 72, 92} : new float[]{88, 112, 136};
+        float sp = sizes[Math.max(0, Math.min(2, csize))];
+        hourTv = text(sp, pal.text, light);
+        minTv = text(sp, pal.accent, light);
         halo(hourTv);
         halo(minTv);
 
         LinearLayout clockBox = new LinearLayout(this);
-        clockBox.setOrientation(LinearLayout.VERTICAL);
-        clockBox.setGravity(Gravity.CENTER_HORIZONTAL);
-        clockBox.setPadding(dp(28), dp(4), dp(28), dp(4));
+        clockBox.setOrientation(line ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        clockBox.setGravity(line ? Gravity.CENTER_VERTICAL
+                : (left ? Gravity.START : Gravity.CENTER_HORIZONTAL));
+        clockBox.setPadding(dp(left ? 6 : 28), dp(4), dp(28), dp(4));
         clockBox.addView(hourTv, new LinearLayout.LayoutParams(WRAP, WRAP));
-        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(WRAP, WRAP);
-        mlp.topMargin = -dp(22);
-        clockBox.addView(minTv, mlp);
+        if (line) {
+            TextView colon = text(sp, pal.textDim, light);
+            colon.setText(":");
+            halo(colon);
+            clockBox.addView(colon, new LinearLayout.LayoutParams(WRAP, WRAP));
+            clockBox.addView(minTv, new LinearLayout.LayoutParams(WRAP, WRAP));
+        } else {
+            LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(WRAP, WRAP);
+            mlp.topMargin = -dp(sp * 0.2f);
+            clockBox.addView(minTv, mlp);
+        }
         clockBox.setOnClickListener(v -> openClock());
         press(clockBox);
 
         dateTv = text(16, pal.text, Typeface.create("sans-serif-medium", Typeface.NORMAL));
         dateTv.setLetterSpacing(0.04f);
         halo(dateTv);
-        dateTv.setPadding(dp(20), dp(8), dp(20), dp(8));
+        dateTv.setPadding(dp(left ? 8 : 20), dp(8), dp(20), dp(8));
         dateTv.setOnClickListener(v -> openCalendar());
+        dateTv.setVisibility(showDate ? View.VISIBLE : View.GONE);
         press(dateTv);
 
         LinearLayout widget = new LinearLayout(this);
         widget.setOrientation(LinearLayout.VERTICAL);
-        widget.setGravity(Gravity.CENTER_HORIZONTAL);
+        widget.setGravity(left ? Gravity.START : Gravity.CENTER_HORIZONTAL);
         widget.addView(clockBox, WRAP, WRAP);
         widget.addView(dateTv, WRAP, WRAP);
         FrameLayout.LayoutParams wl = new FrameLayout.LayoutParams(WRAP, WRAP,
-                Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+                Gravity.TOP | (left ? Gravity.START : Gravity.CENTER_HORIZONTAL));
         wl.topMargin = Math.round(H * 0.10f);
+        if (left) wl.leftMargin = dp(22);
         home.addView(widget, wl);
 
         dock = new LinearLayout(this);
         dock.setOrientation(LinearLayout.HORIZONTAL);
         dock.setGravity(Gravity.CENTER_VERTICAL);
         dock.setClipChildren(false);
+        if (dockPill) {
+            dock.setBackground(roundRect(pal.plate, dp(30)));
+            dock.setPadding(dp(6), 0, dp(6), 0);
+        }
+        dock.setVisibility(dockShow ? View.VISIBLE : View.GONE);
         FrameLayout.LayoutParams dl = new FrameLayout.LayoutParams(WRAP, dp(60),
                 Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         dl.bottomMargin = dp(28);
@@ -441,7 +555,7 @@ public class MainActivity extends Activity {
 
     private void buildDrawerShell() {
         search = new EditText(this);
-        search.setHint("Buscar");
+        search.setHint(L.t("Buscar", "Search"));
         search.setSingleLine(true);
         search.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         search.setTextColor(pal.text);
@@ -489,7 +603,7 @@ public class MainActivity extends Activity {
         content.addView(pagerHost, new FrameLayout.LayoutParams(MATCH, MATCH));
 
         resultsScroll = scroller();
-        resultsGrid = new ReverseGrid(this, 4, dp(92));
+        resultsGrid = new ReverseGrid(this, cols, cellH());
         resultsScroll.addView(resultsGrid, new ViewGroup.LayoutParams(MATCH, WRAP));
         resultsScroll.setVisibility(View.GONE);
         content.addView(resultsScroll, new FrameLayout.LayoutParams(MATCH, MATCH));
@@ -510,9 +624,10 @@ public class MainActivity extends Activity {
         return s;
     }
 
-    private AppCell cell(AppInfo a, boolean label, boolean inDock) {
-        int icon = label ? dp(50) : Math.round(dockSlot * 0.74f);
-        AppCell c = new AppCell(this, a, pal, label, icon);
+    private AppCell cell(AppInfo a, boolean inDock) {
+        boolean lab = !inDock && labels;
+        int icon = inDock ? Math.round(dockSlot * 0.74f) : Math.round(dp(50) * isc);
+        AppCell c = new AppCell(this, a, pal, lab, icon);
         c.setOnClickListener(v -> launch(a, v));
         if (inDock) {
             c.setOnLongClickListener(v -> {
@@ -569,11 +684,27 @@ public class MainActivity extends Activity {
         pagesRow.removeAllViews();
         pageScrolls.clear();
         int n = 0;
-        for (int c = 0; c < AppInfo.NAMES.length; c++) {
-            List<AppInfo> g = new ArrayList<>();
-            for (AppInfo a : apps) if (a.cat == c) g.add(a);
-            if (g.isEmpty()) continue;
-            pagesRow.addView(makePage(AppInfo.NAMES[c], g), new LinearLayout.LayoutParams(W, MATCH));
+        List<AppInfo> vis = new ArrayList<>();
+        for (AppInfo a : apps) if (!hiddenIds.contains(a.id)) vis.add(a);
+
+        if (freq) {
+            List<AppInfo> fr = frequent();
+            if (!fr.isEmpty()) {
+                pagesRow.addView(makePage(L.t("Frecuentes", "Frequent"), fr),
+                        new LinearLayout.LayoutParams(W, MATCH));
+                n++;
+            }
+        }
+        if (group) {
+            for (int c = 0; c < AppInfo.CATS; c++) {
+                List<AppInfo> g = new ArrayList<>();
+                for (AppInfo a : vis) if (a.cat == c) g.add(a);
+                if (g.isEmpty()) continue;
+                pagesRow.addView(makePage(AppInfo.catName(c), g), new LinearLayout.LayoutParams(W, MATCH));
+                n++;
+            }
+        } else if (!vis.isEmpty()) {
+            pagesRow.addView(makePage(L.t("Todas", "All"), vis), new LinearLayout.LayoutParams(W, MATCH));
             n++;
         }
         pageCount = n;
@@ -594,8 +725,8 @@ public class MainActivity extends Activity {
         t.setPadding(dp(28), dp(6), dp(28), dp(6));
 
         BottomScroll sv = scroller();
-        ReverseGrid g = new ReverseGrid(this, 4, dp(92));
-        for (AppInfo a : list) g.addView(cell(a, true, false));
+        ReverseGrid g = new ReverseGrid(this, cols, cellH());
+        for (AppInfo a : list) g.addView(cell(a, false));
         sv.addView(g, new ViewGroup.LayoutParams(MATCH, WRAP));
         pageScrolls.add(sv);
 
@@ -673,15 +804,24 @@ public class MainActivity extends Activity {
                 return;
             }
         }
-        toast("No se encontró la app");
+        toast(L.t("No se encontró la app", "App not found"));
+    }
+
+    private void openSettings() {
+        try {
+            startActivity(new Intent(this, SettingsActivity.class));
+        } catch (Exception e) {
+            toast(L.t("No disponible", "Unavailable"));
+        }
     }
 
     // ------------------------------------------------------------ apps, dock y búsqueda
 
     private void loadApps() {
         final Palette p = pal;
-        final int px = dp(52);
-        final boolean themed = prefs.getBoolean("themed", true);
+        final int px = dp(60);
+        final boolean th = themed;
+        final int sh = shape;
         io.execute(() -> {
             try {
                 PackageManager pm = getPackageManager();
@@ -694,7 +834,7 @@ public class MainActivity extends Activity {
                     AppInfo app = new AppInfo(new ComponentName(ai.packageName, ai.name),
                             String.valueOf(ri.loadLabel(pm)), ai.applicationInfo);
                     try {
-                        app.icon = Icons.render(ri.loadIcon(pm), px, p, themed);
+                        app.icon = Icons.render(ri.loadIcon(pm), px, p, th, sh);
                     } catch (Throwable ignored) {
                     }
                     list.add(app);
@@ -763,9 +903,9 @@ public class MainActivity extends Activity {
         for (String id : dockIds()) {
             AppInfo a = byId.get(id);
             if (a == null) continue;
-            if (dockShown.size() >= DOCK_MAX) break;
+            if (dockShown.size() >= dockMax) break;
             dockShown.add(id);
-            dock.addView(cell(a, false, true), new LinearLayout.LayoutParams(dockSlot, dp(60)));
+            dock.addView(cell(a, true), new LinearLayout.LayoutParams(dockSlot, dp(60)));
         }
     }
 
@@ -866,14 +1006,14 @@ public class MainActivity extends Activity {
         }
         List<AppInfo> starts = new ArrayList<>();
         List<AppInfo> contains = new ArrayList<>();
-        for (AppInfo a : apps) {
+        for (AppInfo a : apps) { // incluye apps ocultas
             if (a.key.startsWith(q)) starts.add(a);
             else if (a.key.contains(q)) contains.add(a);
         }
         starts.addAll(contains);
         currentResults = starts;
         resultsGrid.removeAllViews();
-        for (AppInfo a : currentResults) resultsGrid.addView(cell(a, true, false));
+        for (AppInfo a : currentResults) resultsGrid.addView(cell(a, false));
         resultsScroll.setVisibility(View.VISIBLE);
         resultsScroll.toBottom();
         pagerHost.setVisibility(View.GONE);
@@ -898,8 +1038,9 @@ public class MainActivity extends Activity {
         }
         try {
             startActivity(i, opts);
+            bumpUsage(a.id);
         } catch (Exception e) {
-            toast("No se pudo abrir la app");
+            toast(L.t("No se pudo abrir la app", "Couldn't open the app"));
         }
     }
 
@@ -908,7 +1049,7 @@ public class MainActivity extends Activity {
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
         } catch (Exception e) {
-            toast("No disponible");
+            toast(L.t("No disponible", "Unavailable"));
         }
     }
 
@@ -919,10 +1060,10 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------ menús translúcidos
 
     private void appMenu(View v, AppInfo a, boolean inDock) {
-        List<String> labels = new ArrayList<>();
+        List<String> names = new ArrayList<>();
         List<Runnable> acts = new ArrayList<>();
         if (inDock) {
-            labels.add("Quitar del dock");
+            names.add(L.t("Quitar del dock", "Remove from dock"));
             acts.add(() -> {
                 List<String> ids = dockIds();
                 ids.remove(a.id);
@@ -930,48 +1071,53 @@ public class MainActivity extends Activity {
                 refreshDock();
             });
         } else {
-            labels.add("Agregar al dock");
+            names.add(L.t("Agregar al dock", "Add to dock"));
             acts.add(() -> {
                 List<String> ids = dockIds();
                 if (ids.contains(a.id)) return;
-                if (ids.size() >= DOCK_MAX) {
-                    toast("El dock está lleno (máx. " + DOCK_MAX + ")");
+                if (ids.size() >= dockMax) {
+                    toast(L.t("El dock está lleno (máx. " + dockMax + ")", "Dock is full (max " + dockMax + ")"));
                     return;
                 }
                 ids.add(a.id);
                 saveDock(ids);
                 refreshDock();
             });
+            final boolean hid = hiddenIds.contains(a.id);
+            names.add(hid ? L.t("Mostrar en el cajón", "Show in drawer") : L.t("Ocultar del cajón", "Hide from drawer"));
+            acts.add(() -> {
+                if (hid) hiddenIds.remove(a.id);
+                else hiddenIds.add(a.id);
+                saveHidden();
+                buildPages();
+            });
         }
-        labels.add("Información de la app");
+        names.add(L.t("Información de la app", "App info"));
         acts.add(() -> startSafe(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.parse("package:" + a.pkg))));
         if (!a.system) {
-            labels.add("Desinstalar");
+            names.add(L.t("Desinstalar", "Uninstall"));
             acts.add(() -> startSafe(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + a.pkg))));
         }
         int[] loc = new int[2];
         v.getLocationInWindow(loc);
         showMenu(loc[0] + v.getWidth() / 2f, loc[1], loc[1] + v.getHeight(),
-                labels.toArray(new String[0]), acts.toArray(new Runnable[0]));
+                names.toArray(new String[0]), acts.toArray(new Runnable[0]));
     }
 
     private void homeMenu(float x, float y) {
-        final boolean themed = prefs.getBoolean("themed", true);
         showMenu(x, y - dp(8), y + dp(8),
-                new String[]{"Fondo de pantalla", themed ? "Íconos originales" : "Íconos temáticos", "Ajustes"},
+                new String[]{L.t("Fondo de pantalla", "Wallpaper"), L.t("Personalizar", "Customize"),
+                        L.t("Ajustes del teléfono", "Phone settings")},
                 new Runnable[]{
                         () -> startSafe(Intent.createChooser(new Intent(Intent.ACTION_SET_WALLPAPER),
-                                "Fondo de pantalla")),
-                        () -> {
-                            prefs.edit().putBoolean("themed", !themed).apply();
-                            loadApps();
-                        },
+                                L.t("Fondo de pantalla", "Wallpaper"))),
+                        this::openSettings,
                         () -> startSafe(new Intent(Settings.ACTION_SETTINGS))
                 });
     }
 
-    private void showMenu(float cx, float top, float bottom, String[] labels, Runnable[] acts) {
+    private void showMenu(float cx, float top, float bottom, String[] items, Runnable[] acts) {
         dismissMenu();
         FrameLayout layer = new FrameLayout(this);
         layer.setOnClickListener(v -> dismissMenu());
@@ -984,10 +1130,10 @@ public class MainActivity extends Activity {
         card.setElevation(dp(8));
         card.setPadding(0, dp(6), 0, dp(6));
         card.setMinimumWidth(dp(190));
-        for (int i = 0; i < labels.length; i++) {
+        for (int i = 0; i < items.length; i++) {
             final int idx = i;
             TextView t = text(15, pal.text, Typeface.DEFAULT);
-            t.setText(labels[i]);
+            t.setText(items[i]);
             t.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
             t.setPadding(dp(20), dp(13), dp(20), dp(13));
             t.setOnClickListener(v -> {
@@ -1092,6 +1238,10 @@ public class MainActivity extends Activity {
                 if (target == 0f) {
                     hideKeyboard();
                     resetDrawer();
+                } else if (kbd) {
+                    search.requestFocus();
+                    InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.showSoftInput(search, 0);
                 }
             }
         });
@@ -1218,7 +1368,7 @@ public class MainActivity extends Activity {
                     mode = 1;
                     dragging = true;
                     prepareOpen();
-                } else if (dy > dp(28)) {
+                } else if (dy > dp(28) && swipe == 0) {
                     mode = 3;
                     dragging = true;
                     expandNotifications();
