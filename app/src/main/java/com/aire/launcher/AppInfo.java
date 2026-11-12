@@ -3,13 +3,17 @@ package com.aire.launcher;
 import android.content.ComponentName;
 import android.content.pm.ApplicationInfo;
 import android.graphics.Bitmap;
+import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
@@ -100,13 +104,14 @@ final class AppInfo {
 }
 
 /**
- * Íconos con forma elegible. Modo temático (forzado): capa monocroma si existe; si no, silueta con
- * detalle de luminancia; y si el ícono es una imagen completa, un duotono con los tonos del tema.
+ * Íconos: estilo cristal (forma elegible, temáticos u originales) y estilo papel
+ * (baldosa en relieve con micro-capas: sombra, grosor, cara con luz y glifo con sombra).
  */
 final class Icons {
 
     static Bitmap render(Drawable d, int s, Palette p, boolean themed, int shape) {
         if (d == null) return null;
+        if (p.paper) return paper(d, s, p, shape);
         Bitmap out = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(out);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -114,29 +119,16 @@ final class Icons {
         AdaptiveIconDrawable ad = d instanceof AdaptiveIconDrawable ? (AdaptiveIconDrawable) d : null;
 
         if (themed) {
-            if (ad != null && Build.VERSION.SDK_INT >= 33) {
-                Drawable mono = ad.getMonochrome();
-                if (mono != null) {
-                    paint.setColor(p.plate);
-                    c.drawPaint(paint);
-                    Drawable m = mono.mutate();
-                    m.setBounds(-pad, -pad, s + pad, s + pad);
-                    m.setColorFilter(new PorterDuffColorFilter(p.text, PorterDuff.Mode.SRC_IN));
-                    m.draw(c);
-                    return cut(out, shape);
-                }
-            }
-            Bitmap t = themedBitmap(ad, d, s, pad, p);
-            if (t != null) {
+            Bitmap g = monoGlyph(ad, s, pad, p);
+            if (g == null) g = themedBitmap(ad, d, s, pad, p);
+            if (g != null) {
                 paint.setColor(p.plate);
                 c.drawPaint(paint);
-                c.drawBitmap(t, 0, 0, null);
-                t.recycle();
+                c.drawBitmap(g, 0, 0, null);
+                g.recycle();
                 return cut(out, shape);
             }
         }
-
-        // Originales (o caso degenerado)
         if (ad != null) {
             Drawable bg = ad.getBackground();
             Drawable fg = ad.getForeground();
@@ -158,32 +150,96 @@ final class Icons {
         return cut(out, shape);
     }
 
-    private static Path shapePath(int shape, int s) {
+    // ------------------------------------------------------------ estilo papel
+
+    private static Bitmap paper(Drawable d, int s, Palette p, int shape) {
+        AdaptiveIconDrawable ad = d instanceof AdaptiveIconDrawable ? (AdaptiveIconDrawable) d : null;
+        int pad = Math.round(s * 0.25f);
+        Bitmap g = monoGlyph(ad, s, pad, p);
+        if (g == null) g = themedBitmap(ad, d, s, pad, p);
+
+        Bitmap out = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(out);
+        float m = s * 0.10f, fs = s - 2 * m, top = m - s * 0.02f;
+        RectF face = new RectF(m, top, m + fs, top + fs);
+        Path fp = shapePath(shape, face);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        // 1) sombra suave proyectada
+        paint.setColor(Palette.alpha(p.shadow, 0x78));
+        paint.setMaskFilter(new BlurMaskFilter(s * 0.05f, BlurMaskFilter.Blur.NORMAL));
+        c.save();
+        c.translate(0, s * 0.045f);
+        c.drawPath(fp, paint);
+        c.restore();
+        paint.setMaskFilter(null);
+
+        // 2) grosor de la cartulina
+        paint.setColor(p.cardLo);
+        c.save();
+        c.translate(0, s * 0.022f);
+        c.drawPath(fp, paint);
+        c.restore();
+
+        // 3) cara con luz desde arriba a la izquierda
+        paint.setShader(new LinearGradient(face.left, face.top, face.right, face.bottom,
+                new int[]{Palette.mix(p.card, 0xFFFFFFFF, 0.30f), p.card, Palette.mix(p.card, p.cardLo, 0.35f)},
+                null, Shader.TileMode.CLAMP));
+        c.drawPath(fp, paint);
+        paint.setShader(null);
+
+        // 4) glifo sólido con micro-capa de sombra
+        if (g != null) {
+            Paint gp = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+            boolean bleed = Color.alpha(g.getPixel(2, 2)) > 200; // imagen a sangre (juegos)
+            if (bleed) {
+                c.save();
+                c.clipPath(fp);
+                c.drawBitmap(g, null, face, gp);
+                c.restore();
+            } else {
+                float k = fs * 0.12f;
+                RectF gr = new RectF(face.left + k, face.top + k, face.right - k, face.bottom - k);
+                gp.setColorFilter(new PorterDuffColorFilter(Palette.alpha(p.cardLo, 0xB4), PorterDuff.Mode.SRC_IN));
+                c.save();
+                c.translate(0, s * 0.018f);
+                c.drawBitmap(g, null, gr, gp);
+                c.restore();
+                gp.setColorFilter(null);
+                c.drawBitmap(g, null, gr, gp);
+            }
+            g.recycle();
+        }
+        return out;
+    }
+
+    // ------------------------------------------------------------ utilidades
+
+    private static Path shapePath(int shape, RectF r) {
         Path path = new Path();
-        RectF r = new RectF(0, 0, s, s);
+        float w = r.width();
         switch (shape) {
             case 1: // squircle
-                path.addRoundRect(r, s * 0.36f, s * 0.36f, Path.Direction.CW);
+                path.addRoundRect(r, w * 0.36f, w * 0.36f, Path.Direction.CW);
                 break;
             case 2: // cuadrado redondeado
-                path.addRoundRect(r, s * 0.20f, s * 0.20f, Path.Direction.CW);
+                path.addRoundRect(r, w * 0.20f, w * 0.20f, Path.Direction.CW);
                 break;
             case 3: { // gota
-                float big = s * 0.5f, small = s * 0.12f;
+                float big = w * 0.5f, small = w * 0.12f;
                 path.addRoundRect(r, new float[]{big, big, big, big, big, big, small, small},
                         Path.Direction.CW);
                 break;
             }
             default: // círculo
-                path.addCircle(s / 2f, s / 2f, s / 2f, Path.Direction.CW);
+                path.addOval(r, Path.Direction.CW);
                 break;
         }
         return path;
     }
 
-    /** Borra todo lo que queda fuera de la forma (con borde suave). */
     private static Bitmap cut(Bitmap b, int shape) {
-        Path path = shapePath(shape, b.getWidth());
+        Path path = shapePath(shape, new RectF(0, 0, b.getWidth(), b.getHeight()));
         path.setFillType(Path.FillType.INVERSE_WINDING);
         Paint m = new Paint(Paint.ANTI_ALIAS_FLAG);
         m.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
@@ -193,6 +249,19 @@ final class Icons {
 
     private static float luma(int v) {
         return (0.299f * ((v >> 16) & 255) + 0.587f * ((v >> 8) & 255) + 0.114f * (v & 255)) / 255f;
+    }
+
+    /** Capa monocroma (Android 13+) teñida con el color de texto. */
+    private static Bitmap monoGlyph(AdaptiveIconDrawable ad, int s, int pad, Palette p) {
+        if (ad == null || Build.VERSION.SDK_INT < 33) return null;
+        Drawable mono = ad.getMonochrome();
+        if (mono == null) return null;
+        Bitmap g = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888);
+        Drawable m = mono.mutate();
+        m.setBounds(-pad, -pad, s + pad, s + pad);
+        m.setColorFilter(new PorterDuffColorFilter(p.text, PorterDuff.Mode.SRC_IN));
+        m.draw(new Canvas(g));
+        return g;
     }
 
     private static Bitmap themedBitmap(AdaptiveIconDrawable ad, Drawable d, int s, int pad, Palette p) {
@@ -277,7 +346,6 @@ final class Icons {
             if (a == 0) continue;
             float m;
             if (!full) {
-                // silueta que conserva el detalle interior del logo
                 float w = 1f;
                 if (range > 0.12f) {
                     w = (luma(v) - minL) / range;
@@ -285,7 +353,6 @@ final class Icons {
                 }
                 m = (0.40f + 0.60f * w) * (a / 255f);
             } else {
-                // glifo separado del fondo por diferencia de color
                 int dd = Math.abs(((v >> 16) & 255) - bgR) + Math.abs(((v >> 8) & 255) - bgG)
                         + Math.abs((v & 255) - bgB);
                 m = Math.min(1f, Math.max(0f, (dd / 765f - 0.07f) / 0.22f)) * (a / 255f);
@@ -301,7 +368,7 @@ final class Icons {
         return duotone(px, s, minL, maxL, p);
     }
 
-    /** Imágenes completas (p. ej. juegos): la foto en tonos del tema. */
+    /** Imágenes completas (juegos): la imagen en tonos del tema. */
     private static Bitmap duotone(int[] px, int s, float minL, float maxL, Palette p) {
         float range = Math.max(0.08f, maxL - minL);
         int[] res = new int[px.length];
