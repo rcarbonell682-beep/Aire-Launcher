@@ -38,10 +38,11 @@ final class Palette {
         int textC = p.light ? 0xFF111317 : 0xFFF4F5F7;
         int base = p.light ? mix(0xFFFFFFFF, primary, 0.12f) : mix(0xFF000000, primary, 0.15f);
 
-        float a = 0.30f;
-        while (a < 0.70f && contrast(textC, mix(primary, base, a)) < 4.5) a += 0.08f;
+        // Oscurecimiento del inicio: lo mínimo necesario (máx. 36 %). El halo del texto completa el contraste.
+        float a = 0.08f;
+        while (a < 0.36f && contrast(textC, mix(primary, base, a)) < 3.0) a += 0.04f;
         p.homeDim = a;
-        p.drawerDim = Math.min(0.92f, Math.max(0.80f, a + 0.20f));
+        p.drawerDim = Math.min(0.90f, Math.max(0.78f, a + 0.45f));
 
         int bgHome = mix(primary, base, a);
         int acc = secondary;
@@ -82,4 +83,4 @@ final class Palette {
         double x = lum(a), y = lum(b);
         return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
     }
-                      }
+    }
