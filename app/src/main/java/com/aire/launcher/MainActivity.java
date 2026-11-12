@@ -574,220 +574,14 @@ public class MainActivity extends Activity {
             for (AppInfo a : apps) if (a.cat == c) g.add(a);
             if (g.isEmpty()) continue;
             pagesRow.addView(makePage(AppInfo.NAMES[c], g), new LinearLayout.LayoutParams(W, MATCH));
-   tParams(MATCH, MATCH));
-        buildHome();
-
-        drawer = new LinearLayout(this);
-        drawer.setOrientation(LinearLayout.VERTICAL);
-        root.addView(drawer, new FrameLayout.LayoutParams(MATCH, MATCH));
-        buildDrawerShell();
-
-        root.setOnApplyWindowInsetsListener((v, ins) -> {
-            int top, bottom;
-            if (Build.VERSION.SDK_INT >= 30) {
-                Insets sb = ins.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                Insets ime = ins.getInsets(WindowInsets.Type.ime());
-                top = sb.top;
-                bottom = Math.max(sb.bottom, ime.bottom);
-            } else {
-                top = ins.getSystemWindowInsetTop();
-                bottom = ins.getSystemWindowInsetBottom();
-            }
-            if (top != insetTop || bottom != insetBottom) {
-                insetTop = top;
-                insetBottom = bottom;
-                applyInsets();
-            }
-            return ins;
-        });
-
-        setContentView(root);
-        applyInsets();
-        progress = 0f;
-        lastBlur = -1;
-        setProgress(0f);
-        applyBars();
-        shownH = "";
-        shownM = "";
-        shownD = "";
-        updateClock();
-        root.requestFocus();
-    }
-
-    private void applyInsets() {
-        if (home != null) home.setPadding(0, insetTop, 0, insetBottom);
-        if (drawer != null) drawer.setPadding(0, insetTop, 0, insetBottom);
-    }
-
-    private TextView text(float sp, int color, Typeface tf) {
-        TextView t = new TextView(this);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
-        t.setTextColor(color);
-        t.setTypeface(tf);
-        t.setIncludeFontPadding(false);
-        t.setGravity(Gravity.CENTER);
-        return t;
-    }
-
-    private void halo(TextView t) {
-        t.setShadowLayer(dp(5), 0, 0, Palette.alpha(pal.scrim, 0x55));
-    }
-
-    private GradientDrawable roundRect(int color, float r) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        g.setCornerRadius(r);
-        return g;
-    }
-
-    private void press(View v) {
-        v.setOnTouchListener((x, e) -> {
-            int a = e.getActionMasked();
-            if (a == MotionEvent.ACTION_DOWN) x.setAlpha(0.55f);
-            else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) x.setAlpha(1f);
-            return false;
-        });
-    }
-
-    private void buildHome() {
-        Typeface light = Typeface.create("sans-serif-light", Typeface.NORMAL);
-        hourTv = text(112, pal.text, light);
-        minTv = text(112, pal.accent, light);
-        halo(hourTv);
-        halo(minTv);
-
-        LinearLayout clockBox = new LinearLayout(this);
-        clockBox.setOrientation(LinearLayout.VERTICAL);
-        clockBox.setGravity(Gravity.CENTER_HORIZONTAL);
-        clockBox.setPadding(dp(28), dp(4), dp(28), dp(4));
-        clockBox.addView(hourTv, new LinearLayout.LayoutParams(WRAP, WRAP));
-        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(WRAP, WRAP);
-        mlp.topMargin = -dp(22);
-        clockBox.addView(minTv, mlp);
-        clockBox.setOnClickListener(v -> openClock());
-        press(clockBox);
-
-        dateTv = text(16, pal.text, Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        dateTv.setLetterSpacing(0.04f);
-        halo(dateTv);
-        dateTv.setPadding(dp(20), dp(8), dp(20), dp(8));
-        dateTv.setOnClickListener(v -> openCalendar());
-        press(dateTv);
-
-        LinearLayout widget = new LinearLayout(this);
-        widget.setOrientation(LinearLayout.VERTICAL);
-        widget.setGravity(Gravity.CENTER_HORIZONTAL);
-        widget.addView(clockBox, WRAP, WRAP);
-        widget.addView(dateTv, WRAP, WRAP);
-        FrameLayout.LayoutParams wl = new FrameLayout.LayoutParams(WRAP, WRAP,
-                Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        wl.topMargin = Math.round(H * 0.10f);
-        home.addView(widget, wl);
-
-        dock = new LinearLayout(this);
-        dock.setOrientation(LinearLayout.HORIZONTAL);
-        dock.setGravity(Gravity.CENTER_VERTICAL);
-        FrameLayout.LayoutParams dl = new FrameLayout.LayoutParams(WRAP, dp(60),
-                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        dl.bottomMargin = dp(28);
-        home.addView(dock, dl);
-    }
-
-    private void buildDrawerShell() {
-        search = new EditText(this);
-        search.setHint("Buscar");
-        search.setSingleLine(true);
-        search.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        search.setTextColor(pal.text);
-        search.setHintTextColor(pal.textDim);
-        search.setBackground(roundRect(pal.plate, dp(24)));
-        search.setPadding(dp(20), 0, dp(20), 0);
-        search.setGravity(Gravity.CENTER_VERTICAL);
-        search.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        search.setImeOptions(EditorInfo.IME_ACTION_GO | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
-        search.setHighlightColor(Palette.alpha(pal.accent, 0x66));
-        search.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence s, int a, int b, int c) {
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-                onQuery(s.toString());
-            }
-        });
-        search.setOnEditorActionListener((v, id, ev) -> {
-            launchFirstResult();
-            return true;
-        });
-        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(MATCH, dp(48));
-        sl.setMargins(dp(20), dp(10), dp(20), 0);
-        drawer.addView(search, sl);
-
-        dots = new Dots(this, pal);
-        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(WRAP, dp(26));
-        dl.gravity = Gravity.CENTER_HORIZONTAL;
-        dl.topMargin = dp(6);
-        drawer.addView(dots, dl);
-
-        FrameLayout content = new FrameLayout(this);
-        pager = new SnapPager(this);
-        pagesRow = new LinearLayout(this);
-        pagesRow.setOrientation(LinearLayout.HORIZONTAL);
-        pager.addView(pagesRow, new FrameLayout.LayoutParams(WRAP, MATCH));
-        pager.setListener(p -> dots.setPos(p));
-        content.addView(pager, new FrameLayout.LayoutParams(MATCH, MATCH));
-
-        resultsScroll = scroller();
-        resultsGrid = new ReverseGrid(this, 4, dp(92));
-        resultsScroll.addView(resultsGrid, new ViewGroup.LayoutParams(MATCH, WRAP));
-        resultsScroll.setVisibility(View.GONE);
-        content.addView(resultsScroll, new FrameLayout.LayoutParams(MATCH, MATCH));
-
-        drawer.addView(content, new LinearLayout.LayoutParams(MATCH, 0, 1f));
-        pageScrolls.clear();
-    }
-
-    private BottomScroll scroller() {
-        BottomScroll s = new BottomScroll(this);
-        s.setFillViewport(true);
-        s.setVerticalScrollBarEnabled(false);
-        s.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        s.setClipToPadding(false);
-        s.setPadding(0, 0, 0, dp(14));
-        return s;
-    }
-
-    private AppCell cell(AppInfo a, boolean label, boolean inDock) {
-        AppCell c = new AppCell(this, a, pal, label, dp(label ? 50 : 38));
-        c.setOnClickListener(v -> launch(a, v));
-        c.setOnLongClickListener(v -> {
-            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-            appMenu(v, a, inDock);
-            return true;
-        });
-        return c;
-    }
-
-    private void buildPages() {
-        if (pagesRow == null) return;
-        int keep = pager.cur();
-        pagesRow.removeAllViews();
-        pageScrolls.clear();
-        for (int c = 0; c < AppInfo.NAMES.length; c++) {
-            List<AppInfo> g = new ArrayList<>();
-            for (AppInfo a : apps) if (a.cat == c) g.add(a);
-            if (g.isEmpty()) continue;
-            pagesRow.addView(makePage(AppInfo.NAMES[c], g), new LinearLayout.LayoutParams(W, MATCH));
+            n++;
         }
-        int n = pagesRow.getChildCount();
+        pageCount = n;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) pagesRow.getLayoutParams();
+        lp.width = Math.max(1, n) * W;
+        pagesRow.setLayoutParams(lp);
         dots.setCount(n);
-        final int target = Math.max(0, Math.min(keep, n - 1));
-        pager.post(() -> pager.jumpTo(target));
+        setPagePos(Math.max(0, Math.min(Math.round(pagePos), Math.max(0, n - 1))));
     }
 
     private View makePage(String title, List<AppInfo> list) {
@@ -887,6 +681,7 @@ public class MainActivity extends Activity {
     private void loadApps() {
         final Palette p = pal;
         final int px = dp(52);
+        final boolean themed = prefs.getBoolean("themed", true);
         io.execute(() -> {
             try {
                 PackageManager pm = getPackageManager();
@@ -899,7 +694,7 @@ public class MainActivity extends Activity {
                     AppInfo app = new AppInfo(new ComponentName(ai.packageName, ai.name),
                             String.valueOf(ri.loadLabel(pm)), ai.applicationInfo);
                     try {
-                        app.icon = Icons.render(ri.loadIcon(pm), px, p);
+                        app.icon = Icons.render(ri.loadIcon(pm), px, p, themed);
                     } catch (Throwable ignored) {
                     }
                     list.add(app);
@@ -964,22 +759,108 @@ public class MainActivity extends Activity {
     private void refreshDock() {
         if (dock == null) return;
         dock.removeAllViews();
-        int slot = W / 6;
-        int n = 0;
+        dockShown.clear();
         for (String id : dockIds()) {
             AppInfo a = byId.get(id);
             if (a == null) continue;
-            if (n++ >= DOCK_MAX) break;
-            dock.addView(cell(a, false, true), new LinearLayout.LayoutParams(slot, dp(60)));
+            if (dockShown.size() >= DOCK_MAX) break;
+            dockShown.add(id);
+            dock.addView(cell(a, false, true), new LinearLayout.LayoutParams(dockSlot, dp(60)));
         }
     }
+
+    // ---- arrastrar para reordenar el dock
+
+    private boolean dockTouch(View v, AppInfo a, MotionEvent e) {
+        int act = e.getActionMasked();
+        float rx = e.getRawX();
+        if (act == MotionEvent.ACTION_DOWN) {
+            dDragging = false;
+            dLastRaw = rx;
+            return false;
+        }
+        if (!dDragging) {
+            if (act == MotionEvent.ACTION_MOVE) dLastRaw = rx;
+            return false;
+        }
+        if (act == MotionEvent.ACTION_MOVE) {
+            dockDrag(v, rx - dLastRaw);
+            dLastRaw = rx;
+        } else if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) {
+            dockDrop(v, a, act == MotionEvent.ACTION_UP);
+        }
+        return true;
+    }
+
+    private void startDockDrag(View v) {
+        dDragging = true;
+        dFrom = dock.indexOfChild(v);
+        dTo = dFrom;
+        v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        if (v.getParent() != null) v.getParent().requestDisallowInterceptTouchEvent(true);
+        v.setTranslationZ(dp(6));
+        v.animate().scaleX(1.25f).scaleY(1.25f).setDuration(90).start();
+    }
+
+    private void dockDrag(View v, float dx) {
+        int n = dock.getChildCount();
+        int slot = dockSlot;
+        float t = v.getTranslationX() + dx;
+        t = Math.max(-dFrom * slot, Math.min((n - 1 - dFrom) * slot, t));
+        v.setTranslationX(t);
+        int to = (int) Math.floor((dFrom * slot + t + slot / 2f) / slot);
+        to = Math.max(0, Math.min(n - 1, to));
+        if (to != dTo) {
+            dTo = to;
+            for (int i = 0; i < n; i++) {
+                if (i == dFrom) continue;
+                float shift = 0f;
+                if (i > dFrom && i <= to) shift = -slot;
+                else if (i < dFrom && i >= to) shift = slot;
+                dock.getChildAt(i).animate().translationX(shift).setDuration(130).start();
+            }
+        }
+    }
+
+    private void resetDockVisuals() {
+        for (int i = 0; i < dock.getChildCount(); i++) {
+            View c = dock.getChildAt(i);
+            c.setTranslationZ(0f);
+            c.animate().translationX(0f).scaleX(1f).scaleY(1f).setDuration(100).start();
+        }
+    }
+
+    private void dockDrop(View v, AppInfo a, boolean up) {
+        dDragging = false;
+        v.setPressed(false);
+        if (!up) {
+            refreshDock();
+            return;
+        }
+        if (dTo == dFrom && Math.abs(v.getTranslationX()) < dp(10)) {
+            resetDockVisuals();
+            appMenu(v, a, true);
+            return;
+        }
+        final int from = dFrom, to = dTo;
+        List<String> ids = new ArrayList<>(dockShown);
+        if (from >= 0 && from < ids.size()) {
+            String id = ids.remove(from);
+            ids.add(Math.min(to, ids.size()), id);
+            saveDock(ids);
+        }
+        v.animate().translationX((to - from) * dockSlot).scaleX(1f).scaleY(1f).setDuration(110)
+                .withEndAction(this::refreshDock).start();
+    }
+
+    // ---- búsqueda
 
     private void onQuery(String s) {
         String q = AppInfo.norm(s.trim());
         if (q.isEmpty()) {
             currentResults = new ArrayList<>();
             resultsScroll.setVisibility(View.GONE);
-            pager.setVisibility(View.VISIBLE);
+            pagerHost.setVisibility(View.VISIBLE);
             dots.setVisibility(View.VISIBLE);
             return;
         }
@@ -995,7 +876,7 @@ public class MainActivity extends Activity {
         for (AppInfo a : currentResults) resultsGrid.addView(cell(a, true, false));
         resultsScroll.setVisibility(View.VISIBLE);
         resultsScroll.toBottom();
-        pager.setVisibility(View.GONE);
+        pagerHost.setVisibility(View.GONE);
         dots.setVisibility(View.INVISIBLE);
     }
 
@@ -1076,11 +957,16 @@ public class MainActivity extends Activity {
     }
 
     private void homeMenu(float x, float y) {
+        final boolean themed = prefs.getBoolean("themed", true);
         showMenu(x, y - dp(8), y + dp(8),
-                new String[]{"Fondo de pantalla", "Ajustes"},
+                new String[]{"Fondo de pantalla", themed ? "Íconos originales" : "Íconos temáticos", "Ajustes"},
                 new Runnable[]{
                         () -> startSafe(Intent.createChooser(new Intent(Intent.ACTION_SET_WALLPAPER),
                                 "Fondo de pantalla")),
+                        () -> {
+                            prefs.edit().putBoolean("themed", !themed).apply();
+                            loadApps();
+                        },
                         () -> startSafe(new Intent(Settings.ACTION_SETTINGS))
                 });
     }
@@ -1175,6 +1061,8 @@ public class MainActivity extends Activity {
     private void resetDrawer() {
         if (search.getText().length() > 0) search.setText("");
         search.clearFocus();
+        if (pageAnim != null) pageAnim.cancel();
+        setPagePos(0f);
         for (BottomScroll s : pageScrolls) s.toBottom();
     }
 
@@ -1210,11 +1098,6 @@ public class MainActivity extends Activity {
         anim.start();
     }
 
-    private void openDrawer() {
-        prepareOpen();
-        animateTo(1f);
-    }
-
     private void closeDrawer() {
         hideKeyboard();
         animateTo(0f);
@@ -1241,7 +1124,7 @@ public class MainActivity extends Activity {
         BottomScroll sv = null;
         if (resultsScroll.getVisibility() == View.VISIBLE) sv = resultsScroll;
         else if (!pageScrolls.isEmpty()) {
-            sv = pageScrolls.get(Math.max(0, Math.min(pageScrolls.size() - 1, pager.cur())));
+            sv = pageScrolls.get(Math.max(0, Math.min(pageScrolls.size() - 1, curPage())));
         }
         if (sv == null || sv.getChildCount() == 0) return true;
         int max = sv.getChildAt(0).getHeight() + sv.getPaddingTop() + sv.getPaddingBottom() - sv.getHeight();
@@ -1268,9 +1151,9 @@ public class MainActivity extends Activity {
     private final class Root extends FrameLayout {
         private final int slop;
         private final GestureDetector gd;
-        private float downX, downY;
+        private float downX, downY, dragX0, pageStart;
         private boolean dragging;
-        private int mode; // 1 abrir cajón, 2 cerrar cajón, 3 notificaciones
+        private int mode; // 1 abrir cajón, 2 cerrar cajón, 3 notificaciones, 4 cambiar categoría
         private VelocityTracker vt;
 
         Root(Context c) {
@@ -1316,8 +1199,21 @@ public class MainActivity extends Activity {
         private void tryStart(MotionEvent e) {
             if (menuLayer != null) return;
             float dx = e.getX() - downX, dy = e.getY() - downY;
-            if (Math.abs(dy) < slop || Math.abs(dy) < Math.abs(dx) * 1.3f) return;
-            if (progress < 0.01f) {
+            float ax = Math.abs(dx), ay = Math.abs(dy);
+            if (progress > 0.99f) {
+                if (pageCount > 1 && resultsScroll.getVisibility() != View.VISIBLE
+                        && ax > slop * 0.75f && ax > ay * 0.8f) {
+                    // Bloqueo de dirección: horizontal → cambia de categoría
+                    mode = 4;
+                    dragging = true;
+                    dragX0 = e.getX();
+                    pageStart = pagePos;
+                    if (pageAnim != null) pageAnim.cancel();
+                } else if (ay > slop && ay > ax * 1.3f && dy > 0 && canCloseByDrag(downY)) {
+                    mode = 2;
+                    dragging = true;
+                }
+            } else if (progress < 0.01f && ay > slop && ay >= ax * 1.3f) {
                 if (dy < 0) {
                     mode = 1;
                     dragging = true;
@@ -1327,12 +1223,9 @@ public class MainActivity extends Activity {
                     dragging = true;
                     expandNotifications();
                 }
-            } else if (progress > 0.99f && dy > 0 && canCloseByDrag(downY)) {
-                mode = 2;
-                dragging = true;
             }
             if (dragging) {
-                if (mode != 3) {
+                if (mode == 1 || mode == 2) {
                     if (anim != null) anim.cancel();
                     setLayers(true);
                 }
@@ -1345,10 +1238,22 @@ public class MainActivity extends Activity {
                 end();
                 return;
             }
-            float vy = 0f;
+            float vy = 0f, vx = 0f;
             if (vt != null) {
                 vt.computeCurrentVelocity(1000);
                 vy = vt.getYVelocity();
+                vx = vt.getXVelocity();
+            }
+            if (mode == 4) {
+                int t = Math.round(pagePos);
+                if (up) {
+                    if (vx < -700) t = Math.max(t, (int) Math.floor(pageStart) + 1);
+                    else if (vx > 700) t = Math.min(t, (int) Math.ceil(pageStart) - 1);
+                }
+                t = Math.max(0, Math.min(pageCount - 1, t));
+                end();
+                animatePage(t);
+                return;
             }
             float target;
             if (!up) target = progress > 0.5f ? 1f : 0f;
@@ -1399,6 +1304,7 @@ public class MainActivity extends Activity {
                 case MotionEvent.ACTION_MOVE:
                     if (mode == 1) setProgress(clamp((downY - e.getY()) / range));
                     else if (mode == 2) setProgress(clamp(1f - (e.getY() - downY) / range));
+                    else if (mode == 4) setPagePos(rubber(pageStart - (e.getX() - dragX0) / W));
                     break;
                 case MotionEvent.ACTION_UP:
                     finish(true);
