@@ -8,10 +8,8 @@ import android.text.TextPaint;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.HorizontalScrollView;
 import android.widget.ScrollView;
 
 /** Celda de app dibujada a mano (ligera y fluida). */
@@ -138,74 +136,6 @@ final class BottomScroll extends ScrollView {
     }
 }
 
-/** Scroll horizontal por páginas con imán. */
-final class SnapPager extends HorizontalScrollView {
-    interface Listener {
-        void onPage(float pos);
-    }
-
-    private Listener listener;
-    private int startPage;
-    private boolean flung;
-
-    SnapPager(Context c) {
-        super(c);
-        setHorizontalScrollBarEnabled(false);
-        setOverScrollMode(OVER_SCROLL_NEVER);
-        setFillViewport(true);
-    }
-
-    void setListener(Listener l) {
-        listener = l;
-    }
-
-    int cur() {
-        int w = getWidth();
-        return w == 0 ? 0 : Math.round(getScrollX() / (float) w);
-    }
-
-    private int count() {
-        View c = getChildAt(0);
-        return c instanceof ViewGroup ? ((ViewGroup) c).getChildCount() : 0;
-    }
-
-    void snap(int p) {
-        int n = count();
-        p = Math.max(0, Math.min(Math.max(0, n - 1), p));
-        smoothScrollTo(p * getWidth(), 0);
-    }
-
-    void jumpTo(int p) {
-        scrollTo(p * getWidth(), 0);
-    }
-
-    @Override
-    public void fling(int vx) {
-        flung = true;
-        if (vx > 500) snap(startPage + 1);
-        else if (vx < -500) snap(startPage - 1);
-        else snap(cur());
-    }
-
-    @Override
-    public boolean onTouchEvent(MotionEvent e) {
-        int a = e.getActionMasked();
-        if (a == MotionEvent.ACTION_DOWN) {
-            startPage = cur();
-            flung = false;
-        }
-        boolean r = super.onTouchEvent(e);
-        if ((a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) && !flung) snap(cur());
-        return r;
-    }
-
-    @Override
-    protected void onScrollChanged(int l, int t, int ol, int ot) {
-        super.onScrollChanged(l, t, ol, ot);
-        if (listener != null && getWidth() > 0) listener.onPage(l / (float) getWidth());
-    }
-}
-
 /** Puntos indicadores de página. */
 final class Dots extends View {
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -247,4 +177,4 @@ final class Dots extends View {
             c.drawCircle(x + i * gap, cy, (2.4f + 1.4f * t) * d, p);
         }
     }
-  }
+                }
