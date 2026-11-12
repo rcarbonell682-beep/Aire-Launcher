@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Aire</string>
+    <string name="lock_desc">Permite apagar la pantalla con doble toque. / Lets Aire turn the screen off with a double tap.</string>
 </resources>
